@@ -1,0 +1,8 @@
+# Le dice a Grafana que cargue los dashboards JSON de esta carpeta
+apiVersion: 1
+providers:
+  - name: racks
+    folder: Racks
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

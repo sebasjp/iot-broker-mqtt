@@ -1,0 +1,19 @@
+[Unit]
+Description=Ingestor MQTT -> InfluxDB + CSV
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ingestor
+ExecStart=/home/ubuntu/ingestor/venv/bin/python ingestor.py
+# Crea /var/lib/ingestor (donde va el CSV) con permisos para el usuario ubuntu
+StateDirectory=ingestor
+# Muestra los logs al instante en journalctl
+Environment=PYTHONUNBUFFERED=1
+# Si el programa falla, reiniciarlo a los 5 segundos
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

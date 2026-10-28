@@ -1,0 +1,76 @@
+# Reglas de alerta. Umbrales basados en el rango recomendado por ASHRAE para data centers:
+# temperatura 18-27 °C, humedad relativa hasta 60 %.
+# Nota: "$$" se escribe así porque Grafana reemplaza "$VAR" por variables de entorno en este archivo.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: racks
+    folder: Racks
+    interval: 30s # cada cuánto se evalúan las reglas
+    rules:
+      - uid: rack-temperatura-alta
+        title: Temperatura alta en rack
+        condition: C
+        data:
+          # A: último valor de temperatura de cada rack (últimos 5 min)
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: influxdb-racks
+            model:
+              refId: A
+              query: |-
+                from(bucket: "racks")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "temperatura")
+                  |> last()
+          # B: reducir a un solo número por rack
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          # C: ¿supera el umbral?
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [27] }
+        for: 30s # debe mantenerse 30 s para disparar (evita falsas alarmas)
+        noDataState: Alerting # si el sensor deja de enviar datos, también alerta
+        execErrState: Error
+        labels: { severidad: alta }
+        annotations:
+          summary: 'Temperatura alta en {{ $$labels.rack }}: {{ printf "%.1f" $$values.B.Value }} °C (umbral 27 °C)'
+
+      - uid: rack-humedad-alta
+        title: Humedad alta en rack
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: influxdb-racks
+            model:
+              refId: A
+              query: |-
+                from(bucket: "racks")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "humedad")
+                  |> last()
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [60] }
+        for: 30s
+        noDataState: OK # la falta de datos ya la reporta la regla de temperatura
+        execErrState: Error
+        labels: { severidad: media }
+        annotations:
+          summary: 'Humedad alta en {{ $$labels.rack }}: {{ printf "%.1f" $$values.B.Value }} % (umbral 60 %)'
