@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "7228af6a-4a88-4d8b-88ec-8ed2eda278ae",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\Users\\USUARIO\\Desktop\\Especializacion_AI_UAO\\iot\\iot-broker-mqtt\\.archify\\architecture-iot-racks-20261029-234631\\candidate-docs.json",
+  "output": "C:\\Users\\USUARIO\\Desktop\\Especializacion_AI_UAO\\iot\\iot-broker-mqtt\\docs\\arquitectura-iot.html",
+  "specification": {
+    "sha256": "43507ede9a98f80c42dcb0bca8ea8f94e8a12c4e2f6dda7daaefea4882eef610",
+    "bytes": 8021
+  },
+  "artifact": {
+    "sha256": "d76f3d8641ac4b6a71f54bbb9121ff0bef73062ee7890b8ed488288f5a0715db",
+    "bytes": 770016
+  }
+}
