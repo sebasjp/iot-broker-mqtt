@@ -1,29 +1,39 @@
-# Reglas de alerta. Umbrales basados en el rango recomendado por ASHRAE para data centers:
-# temperatura 18-27 °C, humedad relativa hasta 60 %.
-# Nota: "$$" se escribe así porque Grafana reemplaza "$VAR" por variables de entorno en este archivo.
+# Reglas de alerta del rack (umbrales acordados, "opción A"):
+#   - temperatura > 30 °C durante 1 minuto
+#   - humedad     > 80 %  durante 1 minuto
+#   - humedad     < 40 %  durante 5 minutos
+#   - sin datos           durante ~5 minutos
+# Se evalúan cada 30 s. Cualquier cambio se envía a Telegram (telegram.yaml).
+#
+# En las anotaciones se usa "$values..." con una sola $: Grafana solo interpola
+# variables de entorno en MAYÚSCULAS, así que las variables de plantilla quedan intactas.
 apiVersion: 1
 groups:
   - orgId: 1
     name: racks
     folder: Racks
-    interval: 30s # cada cuánto se evalúan las reglas
+    interval: 30s
     rules:
       - uid: rack-temperatura-alta
-        title: Temperatura alta en rack
+        title: Temperatura alta en rack1
         condition: C
         data:
-          # A: último valor de temperatura de cada rack (últimos 5 min)
+          # A: último valor de temperatura (últimos 5 min)
           - refId: A
             relativeTimeRange: { from: 300, to: 0 }
             datasourceUid: influxdb-racks
             model:
               refId: A
+              datasource: { type: influxdb, uid: influxdb-racks }
+              editorMode: code
+              rawQuery: true
+              resultFormat: time_series
               query: |-
                 from(bucket: "racks")
                   |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "temperatura")
+                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "temperatura" and r.rack == "rack1")
                   |> last()
-          # B: reducir a un solo número por rack
+          # B: un único número por serie
           - refId: B
             datasourceUid: __expr__
             model: { refId: B, type: reduce, expression: A, reducer: last }
@@ -35,16 +45,17 @@ groups:
               type: threshold
               expression: B
               conditions:
-                - evaluator: { type: gt, params: [27] }
-        for: 30s # debe mantenerse 30 s para disparar (evita falsas alarmas)
-        noDataState: Alerting # si el sensor deja de enviar datos, también alerta
+                - evaluator: { type: gt, params: [30] }
+        for: 1m
+        noDataState: OK # la falta de datos la cubre la regla rack-sin-datos
         execErrState: Error
-        labels: { severidad: alta }
+        labels: { severidad: alta, rack: rack1 }
         annotations:
-          summary: 'Temperatura alta en {{ $$labels.rack }}: {{ printf "%.1f" $$values.B.Value }} °C (umbral 27 °C)'
+          summary: 'Temperatura alta en rack1: {{ printf "%.1f" $values.B.Value }} °C (umbral 30 °C)'
+          description: 'El sensor lleva más de 1 minuto por encima de 30 °C.'
 
       - uid: rack-humedad-alta
-        title: Humedad alta en rack
+        title: Humedad alta en rack1
         condition: C
         data:
           - refId: A
@@ -52,10 +63,14 @@ groups:
             datasourceUid: influxdb-racks
             model:
               refId: A
+              datasource: { type: influxdb, uid: influxdb-racks }
+              editorMode: code
+              rawQuery: true
+              resultFormat: time_series
               query: |-
                 from(bucket: "racks")
                   |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "humedad")
+                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "humedad" and r.rack == "rack1")
                   |> last()
           - refId: B
             datasourceUid: __expr__
@@ -67,10 +82,87 @@ groups:
               type: threshold
               expression: B
               conditions:
-                - evaluator: { type: gt, params: [60] }
-        for: 30s
-        noDataState: OK # la falta de datos ya la reporta la regla de temperatura
+                - evaluator: { type: gt, params: [80] }
+        for: 1m
+        noDataState: OK
         execErrState: Error
-        labels: { severidad: media }
+        labels: { severidad: media, rack: rack1 }
         annotations:
-          summary: 'Humedad alta en {{ $$labels.rack }}: {{ printf "%.1f" $$values.B.Value }} % (umbral 60 %)'
+          summary: 'Humedad alta en rack1: {{ printf "%.1f" $values.B.Value }} % (umbral 80 %)'
+          description: 'El sensor lleva más de 1 minuto por encima de 80 % de humedad relativa.'
+
+      - uid: rack-humedad-baja
+        title: Humedad baja en rack1
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: influxdb-racks
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-racks }
+              editorMode: code
+              rawQuery: true
+              resultFormat: time_series
+              query: |-
+                from(bucket: "racks")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "humedad" and r.rack == "rack1")
+                  |> last()
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [40] }
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: { severidad: media, rack: rack1 }
+        annotations:
+          summary: 'Humedad baja en rack1: {{ printf "%.1f" $values.B.Value }} % (umbral 40 %)'
+          description: 'El sensor lleva más de 5 minutos por debajo de 40 % de humedad relativa.'
+
+      - uid: rack-sin-datos
+        title: Sin datos de rack1
+        condition: C
+        data:
+          # A: ¿hay alguna lectura de temperatura en el último minuto?
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: influxdb-racks
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-racks }
+              editorMode: code
+              rawQuery: true
+              resultFormat: time_series
+              query: |-
+                from(bucket: "racks")
+                  |> range(start: -1m)
+                  |> filter(fn: (r) => r._measurement == "ambiente" and r._field == "temperatura" and r.rack == "rack1")
+          # B: cuenta de puntos recibidos
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: count }
+          # C: menos de 1 punto => sin datos (la condición se cumple solo si hay datos)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 5m
+        noDataState: Alerting # sin filas, Grafana marca NoData y esto la convierte en alerta
+        execErrState: Error
+        labels: { severidad: alta, rack: rack1 }
+        annotations:
+          summary: 'Sin datos de rack1: no llegan lecturas desde hace ~5 minutos'
+          description: 'Revisa el ESP32, el broker Mosquitto y el servicio ingestor.'

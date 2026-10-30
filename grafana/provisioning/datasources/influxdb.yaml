@@ -1,0 +1,18 @@
+# Datasource InfluxDB (Flux) para Grafana.
+# Los valores ${...} los sustituye Grafana desde las variables del servicio
+# (EnvironmentFile=/home/ubuntu/.env.grafana), así que este archivo no guarda secretos.
+apiVersion: 1
+datasources:
+  - name: InfluxDB
+    uid: influxdb-racks
+    type: influxdb
+    access: proxy
+    url: ${INFLUX_URL}
+    isDefault: true
+    editable: false
+    jsonData:
+      version: Flux
+      organization: ${INFLUX_ORG}
+      defaultBucket: ${INFLUX_BUCKET}
+    secureJsonData:
+      token: ${INFLUX_TOKEN}

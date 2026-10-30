@@ -3,22 +3,26 @@
   "title": "Monitoreo de racks",
   "tags": ["iot", "racks"],
   "timezone": "browser",
-  "refresh": "5s",
-  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+    "time_options": ["1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+  },
   "schemaVersion": 39,
   "editable": true,
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Temperatura actual",
+      "title": "Temperatura actual (rack1)",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 6 },
       "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
-          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"temperatura\")\n  |> last()"
+          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"temperatura\" and r.rack == \"rack1\")\n  |> last()"
         }
       ],
       "options": {
@@ -29,15 +33,14 @@
       },
       "fieldConfig": {
         "defaults": {
-          "displayName": "${__field.labels.rack}",
+          "displayName": "rack1",
           "unit": "celsius",
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue", "value": null },
-              { "color": "green", "value": 18 },
-              { "color": "red", "value": 27 }
+              { "color": "green", "value": null },
+              { "color": "red", "value": 30 }
             ]
           }
         },
@@ -47,14 +50,14 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Humedad actual",
+      "title": "Humedad actual (rack1)",
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 6 },
       "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
-          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"humedad\")\n  |> last()"
+          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"humedad\" and r.rack == \"rack1\")\n  |> last()"
         }
       ],
       "options": {
@@ -65,14 +68,15 @@
       },
       "fieldConfig": {
         "defaults": {
-          "displayName": "${__field.labels.rack}",
+          "displayName": "rack1",
           "unit": "humidity",
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 60 }
+              { "color": "red", "value": null },
+              { "color": "green", "value": 40 },
+              { "color": "red", "value": 80 }
             ]
           }
         },
@@ -82,19 +86,19 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Temperatura",
+      "title": "Temperatura (rack1)",
       "gridPos": { "x": 0, "y": 6, "w": 24, "h": 9 },
       "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
-          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"temperatura\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"temperatura\" and r.rack == \"rack1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "displayName": "${__field.labels.rack}",
+          "displayName": "rack1",
           "unit": "celsius",
           "decimals": 1,
           "custom": { "thresholdsStyle": { "mode": "line+area" } },
@@ -102,7 +106,7 @@
             "mode": "absolute",
             "steps": [
               { "color": "transparent", "value": null },
-              { "color": "red", "value": 27 }
+              { "color": "red", "value": 30 }
             ]
           }
         },
@@ -112,19 +116,19 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Humedad",
+      "title": "Humedad (rack1)",
       "gridPos": { "x": 0, "y": 15, "w": 24, "h": 9 },
       "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb-racks" },
-          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"humedad\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+          "query": "from(bucket: \"racks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ambiente\" and r._field == \"humedad\" and r.rack == \"rack1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "displayName": "${__field.labels.rack}",
+          "displayName": "rack1",
           "unit": "humidity",
           "decimals": 1,
           "custom": { "thresholdsStyle": { "mode": "line+area" } },
@@ -132,7 +136,7 @@
             "mode": "absolute",
             "steps": [
               { "color": "transparent", "value": null },
-              { "color": "red", "value": 60 }
+              { "color": "red", "value": 80 }
             ]
           }
         },

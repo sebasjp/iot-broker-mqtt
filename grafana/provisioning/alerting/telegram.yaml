@@ -1,0 +1,23 @@
+# Punto de contacto de Telegram y política de notificación raíz.
+# Los tokens se sustituyen desde /home/ubuntu/.env.grafana: aquí no hay secretos.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: telegram-racks
+    receivers:
+      - uid: telegram-racks
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: ${TELEGRAM_BOT_TOKEN}
+          chatid: "${TELEGRAM_CHAT_ID}"
+
+# Todas las alertas van a Telegram. Se agrupan por carpeta y nombre de alerta
+# para no recibir un mensaje por cada rack en la misma evaluación.
+policies:
+  - orgId: 1
+    receiver: telegram-racks
+    group_by: ["grafana_folder", "alertname"]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 1h

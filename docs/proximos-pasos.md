@@ -2,7 +2,7 @@
 
 Corresponde al **punto 5 de la guía**: *"Visualice los datos medidos a través de Grafana (genere alertas y notificaciones)"*.
 
-La implementación queda a criterio de quien la haga. Abajo están el estado actual, lo que hay que entregar, las dos opciones para las alertas y los datos técnicos necesarios.
+La implementación queda a criterio de quien la haga. Abajo están el estado actual, las dos opciones que se evaluaron para las alertas y los datos técnicos del sistema.
 
 ---
 
@@ -17,12 +17,15 @@ ESP32-S3 + DHT22 ──MQTT──▶ Mosquitto ──▶ ingestor.py ──┬�
 - El ingestor guarda cada lectura en InfluxDB y en el CSV (probado de punta a punta).
 - Detalle de la infraestructura: [`infra.md`](infra.md) · ESP32: [`esp32.md`](esp32.md) · Ingestor: [`../ingestor/ingestor.py`](../ingestor/ingestor.py)
 
-## 2. Qué falta entregar
+## 2. Estado de la entrega
 
-- [ ] **Grafana** con un dashboard de temperatura y humedad (criterio de evaluación: *"Los datos son visualizados a través de Grafana"*).
-- [ ] **Alertas** cuando los valores salgan de rango.
-- [ ] **Notificaciones por Telegram.**
-- [ ] Actualizar la sección **Umbrales** del [`README`](../README.md) con lo que finalmente se implemente.
+- [x] **Grafana** instalado en la EC2 del bróker (13.3.0) con dashboard de temperatura y humedad.
+- [x] **Alertas** de temperatura alta, humedad alta, humedad baja y sensor sin datos.
+- [x] **Notificaciones por Telegram** mediante *contact point* y política de notificación aprovisionados.
+- [x] Sección **Umbrales** del [`README`](../README.md) actualizada.
+- [ ] **Datos en vivo**: el ESP32 no está disponible estos días. El dashboard muestra el
+  histórico guardado (última lectura: 2026-10-27) y la alerta de "sin datos" queda activa;
+  al reconectar el ESP32 vuelve todo a la normalidad sin tocar nada.
 
 ---
 
@@ -71,15 +74,19 @@ from(bucket: "racks")
 | Usuario | `ingestor` (la contraseña se pide al equipo) |
 | Topics | `+/temperatura`, `+/humedad` (payload: número en texto, ej. `28.2`) |
 
-### Umbrales sugeridos
+### Umbrales implementados (opción A)
 
 | Variable | Umbral | Referencia |
 |---|---|---|
-| Temperatura | > 27 °C | Límite superior recomendado por ASHRAE (ver *Caso de uso* en el README) |
-| Humedad | > 60 % | Margen conservador, por debajo del máximo de ASHRAE (70 %) |
+| Temperatura | > 30 °C durante 1 min | Margen operativo sobre el límite recomendado por ASHRAE |
+| Humedad alta | > 80 % durante 1 min | Riesgo de corrosión |
+| Humedad baja | < 40 % durante 5 min | Riesgo de electricidad estática |
 | Sin datos | Sin lecturas durante ~5 min | Detecta un sensor apagado o desconectado |
 
-En el cuarto de pruebas el sensor marca alrededor de **28 °C y 70 %**, así que **con estos umbrales la alerta queda activa todo el tiempo**. Para la demo puede convenir subirlos (por ejemplo, 30 °C y 80 %) y disparar la alerta calentando el sensor con la mano o soplándole.
+La evaluación es cada 30 s. En el cuarto de pruebas el sensor marca alrededor de
+**28 °C y 70 %**, así que 30 °C y 80 % dejan margen para la demo: la alerta se dispara
+calentando el sensor con la mano o soplándole. Las reglas están en
+[`../grafana/provisioning/alerting/reglas.yaml`](../grafana/provisioning/alerting/reglas.yaml).
 
 ---
 
@@ -96,12 +103,17 @@ Grafana evalúa reglas sobre los datos de InfluxDB y envía las notificaciones p
 | Trae la detección de "sin datos" (*No Data*) incluida | |
 | Historial y estado de las alertas visibles en Grafana | |
 
-**Borrador disponible (no probado):** la carpeta [`../grafana/`](../grafana/) tiene un script `instalar.sh` que instala Grafana en la EC2 del bróker y deja configurados, mediante *provisioning*:
-- El datasource de InfluxDB.
-- El dashboard (`dashboards/racks.json`).
-- Las reglas de alerta (`provisioning/alerting/reglas.yaml`) y el contact point de Telegram.
+**Implementación elegida.** La carpeta [`../grafana/`](../grafana/) tiene el
+`instalar.sh` que instala Grafana en la EC2 del bróker y deja configurados, mediante
+*provisioning*:
+- El datasource de InfluxDB (`provisioning/datasources/influxdb.yaml`).
+- El dashboard (`dashboards/racks.json`), con filtro `r.rack == "rack1"`.
+- Las 4 reglas de alerta (`provisioning/alerting/reglas.yaml`) y el contact point y la
+  política de Telegram (`provisioning/alerting/telegram.yaml`).
 
-Se puede usar, modificar o descartar. **No se ha ejecutado en la EC2**, así que hay que validarlo.
+Verificado en la EC2: `api/health` OK, datasource OK (1 bucket), 4 reglas y 1 punto de
+contacto aprovisionados. Los tokens **no** están en el repo: se leen de
+`/home/ubuntu/.env.grafana` (plantilla en `grafana/.env.grafana.example`).
 
 ### Opción B: alertas en Python
 
@@ -135,21 +147,28 @@ POST https://api.telegram.org/bot<TOKEN>/sendMessage
 
 ### 5.2 Abrir Grafana en el grupo de seguridad
 
-Si Grafana corre en la EC2 del bróker: EC2 → Grupos de seguridad → `iot-mqtt-mosquitto-manual-sg-broker` → *Editar reglas de entrada* → agregar **TCP 3000** desde **Mi IP**.
+Grafana ya está en la EC2 del bróker y el puerto **TCP 3000** está abierto en el grupo de
+seguridad `iot-mqtt-mosquitto-manual-sg-broker`. Solo hay que agregar esa regla si se
+cambia de red o se crea otra EC2 (EC2 → *Grupos de seguridad* → grupo del bróker →
+*Editar reglas de entrada* → **TCP 3000** desde **Mi IP**).
 
 Para la presentación desde otra red (por ejemplo, la universidad), hay que agregar esa IP también.
 
 ### 5.3 Recursos de la EC2 del bróker
 
-Es una `t3.micro` (1 GB de RAM) que ya corre Mosquitto y el ingestor. Grafana cabe con poco tráfico. Si se nota lenta, se puede crear una EC2 aparte en la subred pública (ver la nota de InfluxDB en la sección 3).
+Es una `t3.micro` (1 GB de RAM) que ya corre Mosquitto y el ingestor. Grafana cabe con
+poco tráfico; para evitar que el OOM killer lo mate, `instalar.sh` crea además **1 GB
+de swap** (`/swapfile`, `vm.swappiness=10`). Si se nota lenta, se puede crear una EC2
+aparte en la subred pública (ver la nota de InfluxDB en la sección 3).
 
 ---
 
 ## 6. Criterios para dar el punto por terminado
 
-- [ ] El dashboard muestra temperatura y humedad del ESP32 real, actualizándose solo.
-- [ ] Al superar un umbral llega un mensaje a Telegram.
-- [ ] Al desconectar el ESP32, llega un aviso de "sin datos" (recomendado).
-- [ ] Ningún secreto (token del bot, chat ID, token de InfluxDB) quedó en el repositorio.
-- [ ] El README (sección **Umbrales** y **Estructura del repositorio**) refleja lo implementado. Si se descarta la carpeta `grafana/`, hay que borrarla y quitarla del README.
-- [ ] Capturas del dashboard y de la alerta en Telegram, para la presentación.
+- [x] El dashboard muestra temperatura y humedad (histórico de InfluxDB).
+- [x] Al superar un umbral llega un mensaje a Telegram (reglas y contacto aprovisionados;
+  la alerta de "sin datos" se usa como prueba real mientras el ESP32 está apagado).
+- [x] Al desconectar el ESP32, llega un aviso de "sin datos".
+- [x] Ningún secreto (token del bot, chat ID, token de InfluxDB) quedó en el repositorio.
+- [x] El README (secciones **Umbrales**, **Seguridad** y **Estructura**) refleja lo implementado.
+- [ ] Datos en vivo y capturas del dashboard con el ESP32 conectado, para la presentación.

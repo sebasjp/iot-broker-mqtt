@@ -75,12 +75,14 @@ reportar. Así se puede:
 - **Temperatura, 18–27 °C:** es exactamente el rango **recomendado** por ASHRAE para
   todos los equipos de TI enfriados por aire ([ASHRAE][ashrae]). ASHRAE es la
   referencia más usada para centros de datos.
-- **Humedad, hasta 60 %:** ASHRAE define la humedad recomendada por punto de rocío
+- **Humedad, 40–80 %:** ASHRAE define la humedad recomendada por punto de rocío
   (–9 °C a 15 °C) con un máximo de 70 % de humedad relativa, o de 50 % si hay
-  contaminantes. Aquí se usa 60 % como límite: un margen conservador, fácil de leer
-  en el sensor y lejos del riesgo de corrosión.
+  contaminantes. Aquí se alerta por encima de 80 % (riesgo de corrosión) y por
+  debajo de 40 % (riesgo de electricidad estática).
 
-Los valores exactos que usan las alertas están en la sección [Umbrales](#umbrales).
+Las alertas usan umbrales operativos algo más amplios que el rango recomendado
+(30 °C y 80 %) para no disparar con el simple funcionamiento normal del rack.
+Los valores exactos están en la sección [Umbrales](#umbrales).
 
 **Una aclaración honesta:** el DHT22 es un sensor económico y educativo (±0,5 °C y
 ±2–5 % de humedad). Alcanza para mostrar el concepto completo de punta a punta, pero
@@ -95,7 +97,13 @@ rack.
 
 ## Arquitectura
 
-> _Pendiente: diagrama de arquitectura._
+![Arquitectura del sistema: ESP32-S3, bróker MQTT, InfluxDB, Grafana y Telegram](docs/img/arquitectura-iot.svg)
+
+El sensor queda fuera de AWS; dentro de la VPC, el bróker y sus servicios viven en la
+subred pública y InfluxDB en la privada, que solo acepta conexiones de `sg-broker`. El
+diagrama marca puertos, protocolos y límites de seguridad. Versión interactiva (zoom,
+temas claro/oscuro y exportación): abre
+[`docs/arquitectura-iot.html`](docs/arquitectura-iot.html) en el navegador.
 
 ## Flujo de datos
 
@@ -113,19 +121,57 @@ rack.
 
    Si InfluxDB falla, el dato queda igual en el CSV.
 5. **Grafana** consulta InfluxDB (Flux) y muestra el dashboard *Monitoreo de racks*,
-   que se actualiza cada 5 s y muestra una línea por rack.
+   que se actualiza cada 30 s. Si una lectura cruza un umbral, la regla pasa a *Firing*
+   y llega un aviso a **Telegram**. Los umbrales y las alertas se aprovisionan desde el
+   repositorio (sin secretos); el token de InfluxDB y el de Telegram se leen de
+   `/home/ubuntu/.env.grafana` al arrancar el servicio.
 
 ## Umbrales
 
-Alertas de Grafana, evaluadas cada 30 s y notificadas por **Telegram**:
+Alertas de Grafana, evaluadas cada 30 s y notificadas por **Telegram**
+(política: `group_wait` 10 s, `group_interval` 1 min, `repeat_interval` 1 h):
 
-| Alerta | Condición | Referencia |
+| Alerta | Condición | Por qué |
 |---|---|---|
-| Temperatura alta | > 27 °C durante 30 s | Límite superior recomendado por ASHRAE |
-| Humedad alta | > 60 % durante 30 s | Margen conservador, por debajo del máximo de ASHRAE (70 %) |
-| Sensor sin datos | Sin lecturas de temperatura durante 5 min | Detecta un ESP32 apagado o desconectado |
+| Temperatura alta | > 30 °C durante 1 min | Margen operativo sobre el límite recomendado por ASHRAE |
+| Humedad alta | > 80 % durante 1 min | Riesgo de corrosión por humedad |
+| Humedad baja | < 40 % durante 5 min | Riesgo de descargas de electricidad estática |
+| Sensor sin datos | Sin lecturas durante ~5 min | Detecta un ESP32 apagado o desconectado |
 
 Reglas: [`grafana/provisioning/alerting/reglas.yaml`](grafana/provisioning/alerting/reglas.yaml).
+Contacto de Telegram: [`grafana/provisioning/alerting/telegram.yaml`](grafana/provisioning/alerting/telegram.yaml).
+
+Cómo se comporta cada regla:
+
+- La evaluación corre cada **30 s** y la condición debe sostenerse el tiempo del `for`
+  (1 min o 5 min) para pasar a **Firing**; así un pico aislado no genera aviso.
+- `rack-sin-datos` usa `noDataState: Alerting`: si InfluxDB no tiene puntos en la
+  ventana, la alerta se enciende en vez de quedarse en silencio (es la que confirma que
+  el aviso llega aunque el ESP32 esté apagado).
+- Las notificaciones se agrupan por carpeta y `alertname`; si la condición se mantiene,
+  Telegram repite el aviso cada hora.
+- Las anotaciones del mensaje usan `$values.B.Value`, el valor de la consulta B de cada
+  regla (temperatura, humedad o cantidad de puntos).
+
+## Grafana: qué se visualiza
+
+El dashboard *Monitoreo de racks* (uid `racks`) tiene cuatro paneles para `rack1`, en
+rango `now-7d` y refresco cada 30 s:
+
+| Panel | Tipo | Qué muestra |
+|---|---|---|
+| Temperatura actual | Stat | Último valor en °C; verde por debajo de 30, rojo desde 30 |
+| Humedad actual | Stat | Último valor en %; verde entre 40 y 80, rojo fuera de ese rango |
+| Temperatura en el tiempo | Timeseries | Serie histórica con línea de umbral en 30 °C |
+| Humedad en el tiempo | Timeseries | Serie histórica con línea de umbral en 80 % |
+
+- Se entra en `http://<IP_ELASTICA>:3000` con usuario `admin` y la clave de
+  `/home/ubuntu/.env.grafana` (`GF_SECURITY_ADMIN_PASSWORD`), sin registro ni usuarios
+  anónimos.
+- Los paneles se pueden editar en el navegador; el JSON versionado solo se toca si se
+  quiere dejar un cambio fijo.
+- El estado de las alertas está en **Alerting → Alert rules**, y el historial de envíos,
+  en **Alerting → Contact points → Telegram → View history**.
 
 ## Seguridad
 
@@ -138,7 +184,12 @@ Reglas: [`grafana/provisioning/alerting/reglas.yaml`](grafana/provisioning/alert
 - **SSH solo desde la IP del administrador.** A la EC2 de InfluxDB se entra pasando
   por el bróker (bastión, `ProxyJump`).
 - **Sin secretos en el repositorio:** `secrets.h`, `.env` y `*.pem` están en el
-  `.gitignore`; el repo solo trae plantillas `.example`.
+  `.gitignore`; el repo solo trae plantillas `.example`. El provisioning de Grafana
+  usa variables (`${INFLUX_TOKEN}`, `${TELEGRAM_BOT_TOKEN}`, …) y los valores reales
+  viven en `/home/ubuntu/.env.grafana` (`640 ubuntu:grafana`), cargado por systemd
+  con `EnvironmentFile`.
+- **Grafana solo en el puerto 3000:** conviene limitar la regla del Security Group a
+  la IP del administrador, igual que el puerto 22.
 - **Limitación conocida:** el puerto 1883 no va cifrado. La mejora sería MQTT sobre
   TLS (puerto 8883).
 
@@ -148,28 +199,44 @@ Reglas: [`grafana/provisioning/alerting/reglas.yaml`](grafana/provisioning/alert
 |---|---|
 | [`esp32-s3/`](esp32-s3/) | Firmware Arduino (`esp32-s3.ino`) y plantilla de credenciales (`secrets.h.example`) |
 | [`ingestor/`](ingestor/) | `ingestor.py`, servicio systemd e `instalar.sh` |
-| [`grafana/`](grafana/) | Dashboard, reglas de alerta e `instalar.sh` (configura InfluxDB y Telegram) |
-| [`docs/`](docs/) | Guías de infraestructura AWS y del ESP32 |
+| [`grafana/`](grafana/) | Dashboard, datasource y alertas aprovisionadas, plantilla `.env.grafana.example` e `instalar.sh` |
+| [`docs/`](docs/) | Guías de infraestructura AWS y del ESP32, más el diagrama (`docs/img/` + HTML interactivo) |
 
 ## Puesta en marcha
 
 1. **Infraestructura AWS** (VPC, subredes, EC2, Mosquitto, InfluxDB): [`docs/infra.md`](docs/infra.md).
-2. **Ingestor y Grafana**, desde el PC (requiere el alias SSH `broker` de `docs/infra.md`).
-   Cada script pide los secretos de forma interactiva:
+2. **Ingestor**, desde el PC (requiere el alias SSH `broker` de `docs/infra.md`):
 
    ```powershell
-   scp -r ingestor grafana broker:~/
+   scp -r ingestor broker:~/
    ssh -t broker "bash ~/ingestor/instalar.sh"
+   ```
+
+3. **Grafana**, desde el PC. El script crea 1 GB de swap, instala Grafana, carga el
+   datasource, el dashboard y las 4 alertas, y aplica la contraseña de admin:
+
+   ```powershell
+   scp -r grafana broker:~/
+   ssh broker "cp ~/grafana/.env.grafana.example ~/.env.grafana"
+   ssh -t broker "nano ~/.env.grafana"   # INFLUX_*, TELEGRAM_*, GF_SECURITY_ADMIN_PASSWORD
    ssh -t broker "bash ~/grafana/instalar.sh"
    ```
 
-3. **ESP32-S3:** [`docs/esp32.md`](docs/esp32.md).
+   Grafana lee los secretos de `/home/ubuntu/.env.grafana`; el repositorio no los
+   contiene. El script es idempotente: se puede repetir para actualizar el dashboard
+   o las reglas.
+
+4. **ESP32-S3:** [`docs/esp32.md`](docs/esp32.md).
 
 Verificación rápida en la EC2 del bróker:
 
 ```bash
 journalctl -u ingestor -f                  # rack1 temperatura=28.2 ...
 tail /var/lib/ingestor/datos.csv
+systemctl status grafana-server --no-pager
+curl -s http://localhost:3000/api/health   # {"database":"ok",...}
 ```
 
 Grafana: `http://<IP_ELASTICA>:3000` → *Dashboards → Racks → Monitoreo de racks*.
+El dashboard abre en *últimos 7 días* (hay histórico aunque el ESP32 esté apagado) y
+permite cambiar a 30 días. Si el puerto 3000 no responde, revisa el Security Group.
