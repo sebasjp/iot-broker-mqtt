@@ -317,38 +317,38 @@ recordatorio por hora mientras dure, y uno al resolverse.
 
 Grafana usa la Bot API de Telegram: una petición HTTPS a
 `https://api.telegram.org/bot<token>/sendMessage` con el `chat_id` y el texto del mensaje,
-formateado con la plantilla por defecto de Grafana. La EC2 necesita salida a internet por el
-puerto 443 (la tiene, porque también descarga paquetes y consulta la API de Telegram).
+formateado con la plantilla `telegram-racks` de `plantillas.yaml`. La EC2 necesita salida a
+internet por el puerto 443 (la tiene, porque también descarga paquetes y consulta la API de
+Telegram).
 
-El texto sigue esta estructura (plantilla por defecto, con el ejemplo de `rack-sin-datos`):
+El texto que se envía hoy es breve y directo (con el ejemplo de `rack-sin-datos`):
 
 ```text
-**Firing**
-
-Value: [ var='B' labels={} value=1.0 ], [ var='C' labels={} value=1.0 ]
-Labels:
- - alertname = Sin datos de rack1
- - grafana_folder = Racks
- - rack = rack1
- - severidad = alta
-Annotations:
- - description = Revisa el ESP32, el broker Mosquitto y el servicio ingestor.
- - summary = Sin datos de rack1: no llegan lecturas desde hace ~5 minutos
-Silence: http://<IP_ELASTICA>:3000/alerting/silence/new?...
-Source: http://<IP_ELASTICA>:3000/alerting/grafana/...
+🔴 ALERTA · rack rack1 (alta)
+Sin datos de rack1: no llegan lecturas desde hace ~5 minutos
+Revisa el ESP32, el broker Mosquitto y el servicio ingestor.
+🔎 http://<IP_ELASTICA>:3000/alerting/grafana/...
 ```
 
-Lo importante de cada bloque:
+Lo importante de cada línea:
 
-- **`**Firing**` / `**Resolved**`** — estado que originó el mensaje.
-- **`Value`** — valores de las consultas de la regla; en las reglas de umbral el número útil
-  es el de B (temperatura, humedad o cantidad de puntos), y por eso `summary` lo imprime con
-  `{{ printf "%.1f" $values.B.Value }}`.
-- **`Labels`** — `alertname`, `grafana_folder`, `rack` y `severidad`, que permiten filtrar y
-  agrupar.
-- **`Annotations`** — `summary` (una línea con el valor y el umbral) y `description` (qué
-  revisar).
-- **`Silence` y `Source`** — enlaces a Grafana para silenciar la alerta o ver la regla.
+- **`🔴 ALERTA` / `🟢 RESUELTA`** — estado que originó el mensaje, con rack y severidad.
+- **`summary`** — una línea con el nombre de la alerta, el valor que la disparó y el umbral; por
+  eso los mensajes de umbral dicen, por ejemplo,
+  `Temperatura alta en rack1: 31.4 °C (umbral 30 °C)`.
+- **`description`** — qué revisar; solo se incluye al disparar. Al resolverse, el mensaje queda
+  en estado, resumen y enlace.
+- **`🔎`** — enlace a la regla concreta en Grafana (`GeneratorURL`); si faltara, cae a la raíz
+  del servidor (`ExternalURL`), de modo que el enlace nunca desaparece.
+
+Ese enlace sale con la IP pública porque `instalar.sh` define `HOST_IP` y escribe
+`/etc/systemd/system/grafana-server.service.d/20-root-url.conf` con
+`GF_SERVER_ROOT_URL=http://${HOST_IP}:3000`. Sin ese ajuste, Grafana arma la URL con
+`localhost:3000` y el enlace del mensaje no abre desde el teléfono. Si la IP elástica cambia,
+se actualiza `HOST_IP` y se vuelve a ejecutar `instalar.sh`.
+
+Frente a la plantilla por defecto ya no se envían el volcado `Value` con los `var='B'`/`var='C'`,
+la lista completa de etiquetas, el bloque `Annotations` ni el enlace de `Silence`.
 
 Los textos exactos de `summary` y `description` de cada regla están en `reglas.yaml`; por
 ejemplo, la de temperatura alta dice
@@ -363,10 +363,10 @@ Hay **dos niveles** y conviene no confundirlos:
 | Anotaciones (`summary`, `description`) | `reglas.yaml` | El texto útil de cada alerta: valor, umbral, qué revisar |
 | Plantilla de notificación | Un YAML de `templates` + `message` en `telegram.yaml` | El formato del mensaje: título, estado, orden, campos, enlaces |
 
-Hoy las anotaciones ya están personalizadas y el formato es el **por defecto** de Grafana.
-Para cambiar el formato se agrega una plantilla con nombre:
+### Cómo está hoy
 
-**1. Crear `grafana/provisioning/alerting/plantillas.yaml`:**
+El formato vive en
+[`grafana/provisioning/alerting/plantillas.yaml`](../grafana/provisioning/alerting/plantillas.yaml):
 
 ```yaml
 apiVersion: 1
@@ -375,63 +375,66 @@ templates:
     name: telegram-racks
     template: |
       {{ define "telegram-racks" -}}
-      {{ if eq .Status "firing" }}ALERTA{{ else }}RESUELTA{{ end }} · {{ .CommonLabels.alertname }}
+      {{ if eq .Status "firing" }}🔴 *ALERTA*{{ else }}🟢 *RESUELTA*{{ end }} · rack {{ .CommonLabels.rack }} ({{ .CommonLabels.severidad }})
       {{ range .Alerts -}}
       {{ .Annotations.summary }}
-      {{ .Annotations.description }}
-      {{ end }}
-      Rack: {{ .CommonLabels.rack }} · Severidad: {{ .CommonLabels.severidad }}
-      {{ .ExternalURL }}
+      {{ if eq $.Status "firing" }}{{ .Annotations.description }}{{ end }}
+      {{ end -}}
+      {{ with (index .Alerts 0).GeneratorURL }}🔎 {{ . }}{{ else }}🔎 {{ .ExternalURL }}{{ end }}
       {{- end }}
 ```
 
-**2. Decirle al contact point que la use** (dentro de `settings` en `telegram.yaml`):
+Y el contact point la referencia con una línea en `telegram.yaml`:
 
 ```yaml
-        settings:
-          bottoken: ${TELEGRAM_BOT_TOKEN}
-          chatid: "${TELEGRAM_CHAT_ID}"
           message: '{{ template "telegram-racks" . }}'
 ```
 
-**3. Enseñarle el archivo a `instalar.sh`**: añadir el `cp` de `plantillas.yaml` y meterlo en
-las líneas de `chown root:grafana` y `chmod 640`. Sin ese paso el archivo no llega a la EC2.
+`instalar.sh` copia el archivo a `/etc/grafana/provisioning/alerting/` y lo deja como
+`640 root:grafana`. Un bloque `templates:` que no se agregue a esas líneas nunca llega a la
+EC2.
 
-**4. Aplicar**: `bash /home/ubuntu/grafana/instalar.sh`, o recargar el provisioning sin
-reiniciar:
+### Cómo cambiarlo
+
+1. Editar el bloque `template` en `plantillas.yaml`, o las anotaciones en `reglas.yaml` si solo
+   cambia el texto y no el formato.
+2. Si se agrega otro archivo de plantillas, añadir su `cp` y su `chown`/`chmod` en `instalar.sh`.
+3. Aplicar con `bash /home/ubuntu/grafana/instalar.sh` o recargar el provisioning sin
+   reiniciar:
 
 ```bash
 curl -fsS -u "admin:$GF_SECURITY_ADMIN_PASSWORD" -X POST \
   localhost:3000/api/admin/provisioning/alerting/reload
 ```
 
-Reglas que hay que respetar:
+### Límites que hay que respetar
 
 - **La plantilla no admite variables de entorno**: `${...}` no se sustituye ahí, igual que en
   las anotaciones. Por eso la plantilla no debe contener secretos.
 - **`settings.message` sí se interpola**: si se escribe `{{ $labels }}` en ese campo, hay que
-  escaparlo como `{{ $$labels }}`. En la plantilla propuesta se usan solo campos
-  (`.CommonLabels`, `.Annotations`), así que no aplica.
-- **Telegram corta en 4096 caracteres**. Como se agrupa por `alertname`, un mensaje lleva
-  pocas alertas; aun así, conviene no imprimir todo `.Alerts` sin filtrar.
-- **Formato Markdown**: `*`, `_`, `[`, `]` y `` ` `` literales deben escaparse; una URL con
-  `_` es el caso típico que rompe el envío.
+  escaparlo como `{{ $$labels }}`. En la plantilla actual se usan solo campos
+  (`.CommonLabels`, `.Annotations`, `.GeneratorURL`, `.ExternalURL`), así que no aplica.
+- **Telegram corta en 4096 caracteres**. Como se agrupa por `alertname`, un mensaje lleva pocas
+  alertas; aun así, conviene no imprimir todo `.Alerts` sin filtrar.
+- **Formato Markdown**: `*`, `_`, `[`, `]` y `` ` `` literales deben escaparse; una URL con `_`
+  es el caso típico que rompe el envío.
 - **Campos disponibles**: `.Status` (`firing`/`resolved`), `.Alerts` (`.Firing`, `.Resolved`),
   `.CommonLabels`, `.CommonAnnotations`, `.GroupLabels`, `.ExternalURL`, y por alerta
   `.Labels`, `.Annotations`, `.StartsAt`, `.EndsAt`, `.GeneratorURL`, `.SilenceURL`. Se pueden
   usar `if`, `range`, `index`, `len`, `printf` y `eq`.
-- **Hora**: `.StartsAt` llega en UTC; para hora local existe la función `tz`.
+- **Hora**: `.StartsAt` llega en UTC; para hora local existe la función `tz`. El mensaje actual
+  no imprime hora porque Telegram ya marca la de entrega.
 - **Los recursos provisionados no se editan en la web**, así que el cambio siempre pasa por el
   archivo y la recarga.
 
-Cómo probarlo:
+### Cómo probarlo
 
-1. **Test** del contact point en *Alerting → Contact points* (Grafana Alertmanager lo
-   permite aunque esté provisionado): envía un mensaje con alertas sintéticas.
-2. **Historial**: *Alerting → Contact points → Telegram → View history* muestra cada intento
-   y el error si falló.
-3. **Prueba real**: bajar temporalmente un umbral en `reglas.yaml`, recargar, esperar el
-   `for` y restaurar; o detener el ingestor ~6 min para el aviso de `rack-sin-datos`.
+1. **Test** del contact point en *Alerting → Contact points* (Grafana Alertmanager lo permite
+   aunque esté provisionado): envía un mensaje con alertas sintéticas.
+2. **Historial**: *Alerting → Contact points → Telegram → View history* muestra cada intento y
+   el error si falló.
+3. **Prueba real**: detener el ingestor ~6 min para el aviso de `rack-sin-datos` y volver a
+   arrancarlo para ver el mensaje de resolución.
 
 ## Línea de tiempo de una alerta
 

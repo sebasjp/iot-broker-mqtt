@@ -11,6 +11,8 @@ contactPoints:
         settings:
           bottoken: ${TELEGRAM_BOT_TOKEN}
           chatid: "${TELEGRAM_CHAT_ID}"
+          # Plantilla breve definida en plantillas.yaml.
+          message: '{{ template "telegram-racks" . }}'
 
 # Todas las alertas van a Telegram. Se agrupan por carpeta y nombre de alerta
 # para no recibir un mensaje por cada rack en la misma evaluación.

@@ -13,6 +13,9 @@ cd "$(dirname "$0")"
 
 PROV=/etc/grafana/provisioning
 ENV_FILE=/home/ubuntu/.env.grafana
+# IP elástica del bróker: es la que se abre en el navegador y la que usan los enlaces
+# de las alertas (root_url). Si cambia, se actualiza aquí.
+HOST_IP=32.199.8.57
 
 echo "==> 1/6 Comprobando $ENV_FILE"
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -67,11 +70,14 @@ sudo cp provisioning/datasources/influxdb.yaml "$PROV/datasources/influxdb.yaml"
 sudo cp provisioning/dashboards/racks.yaml "$PROV/dashboards/racks.yaml"
 sudo cp provisioning/alerting/telegram.yaml "$PROV/alerting/telegram.yaml"
 sudo cp provisioning/alerting/reglas.yaml "$PROV/alerting/reglas.yaml"
+sudo cp provisioning/alerting/plantillas.yaml "$PROV/alerting/plantillas.yaml"
 sudo cp dashboards/racks.json /var/lib/grafana/dashboards/racks.json
 sudo chown -R grafana:grafana /var/lib/grafana/dashboards
 # Los YAML no contienen secretos (se leen del entorno), pero se restringen igualmente.
-sudo chown root:grafana "$PROV/datasources/influxdb.yaml" "$PROV/alerting/telegram.yaml" "$PROV/alerting/reglas.yaml"
-sudo chmod 640 "$PROV/datasources/influxdb.yaml" "$PROV/alerting/telegram.yaml" "$PROV/alerting/reglas.yaml"
+sudo chown root:grafana "$PROV/datasources/influxdb.yaml" "$PROV/alerting/telegram.yaml" \
+  "$PROV/alerting/reglas.yaml" "$PROV/alerting/plantillas.yaml"
+sudo chmod 640 "$PROV/datasources/influxdb.yaml" "$PROV/alerting/telegram.yaml" \
+  "$PROV/alerting/reglas.yaml" "$PROV/alerting/plantillas.yaml"
 
 # Grafana (usuario grafana) lee los secretos de este EnvironmentFile.
 sudo chown ubuntu:grafana "$ENV_FILE"
@@ -80,6 +86,12 @@ sudo mkdir -p /etc/systemd/system/grafana-server.service.d
 sudo tee /etc/systemd/system/grafana-server.service.d/10-env-file.conf >/dev/null <<'EOF'
 [Service]
 EnvironmentFile=/home/ubuntu/.env.grafana
+EOF
+
+# root_url: sin esto, los enlaces de las alertas (GeneratorURL) apuntan a localhost:3000.
+sudo tee /etc/systemd/system/grafana-server.service.d/20-root-url.conf >/dev/null <<EOF
+[Service]
+Environment=GF_SERVER_ROOT_URL=http://${HOST_IP}:3000
 EOF
 
 echo "==> 5/6 Primera arrancada y contraseña de admin"
@@ -120,8 +132,6 @@ curl -fsS -u "$AUTH" http://localhost:3000/api/v1/provisioning/alert-rules 2>/de
 echo -n "    puntos de contacto: "
 curl -fsS -u "$AUTH" http://localhost:3000/api/v1/provisioning/contact-points 2>/dev/null | grep -o '"name"' | wc -l
 
-# IP elástica del bróker: es la que se abre en el navegador para entrar a Grafana.
-HOST_IP=32.199.8.57
 echo
 echo "Grafana: http://${HOST_IP}:3000  (usuario admin / clave definida en $ENV_FILE)"
 echo "Si no abre, revisa que el Security Group permita TCP 3000 desde tu IP."

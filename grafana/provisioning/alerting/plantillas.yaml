@@ -1,0 +1,15 @@
+# Plantilla del mensaje de Telegram: breve, con valor, umbral y enlace a la regla.
+# No admite variables de entorno (${...}); por eso aquí no hay secretos.
+apiVersion: 1
+templates:
+  - orgId: 1
+    name: telegram-racks
+    template: |
+      {{ define "telegram-racks" -}}
+      {{ if eq .Status "firing" }}🔴 *ALERTA*{{ else }}🟢 *RESUELTA*{{ end }} · rack {{ .CommonLabels.rack }} ({{ .CommonLabels.severidad }})
+      {{ range .Alerts -}}
+      {{ .Annotations.summary }}
+      {{ if eq $.Status "firing" }}{{ .Annotations.description }}{{ end }}
+      {{ end -}}
+      {{ with (index .Alerts 0).GeneratorURL }}🔎 {{ . }}{{ else }}🔎 {{ .ExternalURL }}{{ end }}
+      {{- end }}
