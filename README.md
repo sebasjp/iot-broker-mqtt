@@ -155,7 +155,9 @@ Cómo se comporta cada regla:
 
 ## Grafana: qué se visualiza
 
-El dashboard *Monitoreo de racks* (uid `racks`) tiene cuatro paneles para `rack1`, en
+El montaje completo (datasource, reglas, bot de Telegram y cómo cambiar el mensaje) está en
+[`docs/grafana.md`](docs/grafana.md). El dashboard *Monitoreo de racks* (uid `racks`) tiene
+cuatro paneles para `rack1`, en
 rango `now-7d` y refresco cada 30 s:
 
 | Panel | Tipo | Qué muestra |
@@ -168,8 +170,10 @@ rango `now-7d` y refresco cada 30 s:
 - Se entra en `http://<IP_ELASTICA>:3000` con usuario `admin` y la clave de
   `/home/ubuntu/.env.grafana` (`GF_SECURITY_ADMIN_PASSWORD`), sin registro ni usuarios
   anónimos.
-- Los paneles se pueden editar en el navegador; el JSON versionado solo se toca si se
-  quiere dejar un cambio fijo.
+- El dashboard está aprovisionado: Grafana no permite guardar cambios sobre el original
+  desde el navegador. Para dejar un cambio fijo hay que editar
+  `grafana/dashboards/racks.json` y volver a ejecutar `grafana/instalar.sh`; desde la UI solo
+  se puede crear una copia con «Save as», que no queda versionada.
 - El estado de las alertas está en **Alerting → Alert rules**, y el historial de envíos,
   en **Alerting → Contact points → Telegram → View history**.
 
@@ -200,7 +204,7 @@ rango `now-7d` y refresco cada 30 s:
 | [`esp32-s3/`](esp32-s3/) | Firmware Arduino (`esp32-s3.ino`) y plantilla de credenciales (`secrets.h.example`) |
 | [`ingestor/`](ingestor/) | `ingestor.py`, servicio systemd e `instalar.sh` |
 | [`grafana/`](grafana/) | Dashboard, datasource y alertas aprovisionadas, plantilla `.env.grafana.example` e `instalar.sh` |
-| [`docs/`](docs/) | Guías de infraestructura AWS y del ESP32, más el diagrama (`docs/img/` + HTML interactivo) |
+| [`docs/`](docs/) | Guías de infraestructura AWS, del ESP32 y de Grafana/Telegram, más el diagrama (`docs/img/` + HTML interactivo) |
 
 ## Puesta en marcha
 
